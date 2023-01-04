@@ -1,6 +1,6 @@
 import cherrypy
 import json
-
+import os
 from model import DataBase
 
 
@@ -24,6 +24,16 @@ def authorizing():
     return output
 
 
+def authorizing_failed():
+    output = {
+        "status": "error",
+        "code": "UNAUTHENTICATED",
+        "message": "authentication failure"
+    }
+    cherrypy.response.status = 401
+    return output
+
+
 def user_not_found():
     output = {
         "status": "error",
@@ -41,6 +51,26 @@ def internal_server_error():
         "message": "internal server failure"
     }
     cherrypy.response.status = 500
+    return output
+
+
+def folder_already_exist():
+    output = {
+        "status": "error",
+        "code": "INVALID_REQUEST",
+        "message": "folder already exists"
+    }
+    cherrypy.response.status = 404
+    return output
+
+
+def folder_does_not_exist():
+    output = {
+        "status": "error",
+        "code": "INVALID_REQUEST",
+        "message": "folder does not exists"
+    }
+    cherrypy.response.status = 404
     return output
 
 
@@ -67,15 +97,18 @@ class users_controller:
         if user_name is None or phone_number is None or email is None or country is None or password is None or cherrypy.request.method != 'POST':
             return bad_request()
         try:
-            result = DataBase.insert_user(user_name=user_name, phone_number=phone_number, user_email=email, country=country,
+            result = DataBase.insert_user(user_name=user_name, phone_number=phone_number, user_email=email,
+                                          country=country,
                                           password=password)
-            if result < 0:
+            if result == -1:
                 output = {
                     "status": "error",
                     "code": "USER_ALREADY_EXISTS",
                     "message": "email already exists"
                 }
                 return output
+            elif result == -2:
+                return internal_server_error()
             cherrypy.response.status = 201
         except:
             return internal_server_error()
@@ -145,25 +178,15 @@ class users_controller:
 class Folder(object):
 
     @cherrypy.tools.json_out()
-    def POST(self, authkey=None, folder_name=None):
-        if authkey is None or folder_name is None:
+    def POST(self, authKey=None, folder_name=None):
+        if authKey is None or folder_name is None:
             return bad_request()
         try:
-            db_output = DataBase.insert_folder(auth_key=authkey, folder_name=folder_name)
+            db_output = DataBase.insert_folder(auth_key=authKey, folder_name=folder_name)
             if db_output == -1:
-                cherrypy.response.status = 401
-                return {
-                    "status": "error",
-                    "code": "UNAUTHENTICATED",
-                    "message": "authentication failure"
-                }
+                return authorizing_failed()
             elif db_output == -2:
-                cherrypy.response.status = 404
-                return {
-                    "status": "error",
-                    "code": "INVALID_REQUEST",
-                    "message": "folder already exists"
-                }
+                return folder_already_exist()
             return {
                 "status": "success",
                 "code": "SUCCESS",
@@ -175,45 +198,27 @@ class Folder(object):
             internal_server_error()
 
     @cherrypy.tools.json_out()
-    def DELETE(self, authkey=None, folder_name=None):
-        if authkey is None or folder_name is None:
+    def DELETE(self, authKey=None, folder_name=None):
+        if authKey is None or folder_name is None:
             return bad_request()
         try:
-            db_output = DataBase.delete_folder(auth_key=authkey, folder_name=folder_name)
+            db_output = DataBase.delete_folder(auth_key=authKey, folder_name=folder_name)
             if db_output == -1:
-                cherrypy.response.status = 401
-                return {
-                    "status": "error",
-                    "code": "UNAUTHENTICATED",
-                    "message": "authentication failure"
-                }
+                return authorizing_failed()
             elif db_output == -2:
-                cherrypy.response.status = 404
-                return {
-                    "status": "error",
-                    "code": "INVALID_REQUEST",
-                    "message": "folder does not exists"
-                }
+                return folder_does_not_exist()
             cherrypy.response.status = 204
         except:
             internal_server_error()
 
     @cherrypy.tools.json_out()
-    def GET(self, authKey= None):
+    def GET(self, authKey=None):
         if authKey is None:
             return bad_request()
         try:
-            db_output = DataBase.get_folder(auth_key=authKey)
-            if db_output == -1:
-                cherrypy.response.status = 401
-                return {
-                    "status": "error",
-                    "code": "UNAUTHENTICATED",
-                    "message": "authentication failure"
-                }
-            output = []
-            for folder in db_output:
-                output.append(folder[0])
+            output = DataBase.get_folder(auth_key=authKey)
+            if output == -1:
+                return authorizing_failed()
             return {
                 "status": "success",
                 "code": "SUCCESS",
@@ -225,32 +230,181 @@ class Folder(object):
             internal_server_error()
 
     @cherrypy.tools.json_out()
-    def PUT(self, authkey=None, folder_name=None, new_folder_name=None):
-        if authkey is None or folder_name is None or new_folder_name is None:
+    def PUT(self, authKey=None, folder_name=None, new_folder_name=None):
+        if authKey is None or folder_name is None or new_folder_name is None:
             return bad_request()
         try:
-            db_output = DataBase.update_folder(auth_key=authkey, old_folder_name=folder_name,
+            db_output = DataBase.update_folder(auth_key=authKey, old_folder_name=folder_name,
                                                new_folder_name=new_folder_name)
             if db_output == -1:
-                cherrypy.response.status = 401
-                return {
-                    "status": "error",
-                    "code": "UNAUTHENTICATED",
-                    "message": "authentication failure"
-                }
+                return authorizing_failed()
             elif db_output == -2:
-                cherrypy.response.status = 404
-                return {
-                    "status": "error",
-                    "code": "INVALID_REQUEST",
-                    "message": "folder already exists"
-                }
+                return folder_already_exist()
             cherrypy.response.status = 204
         except:
             internal_server_error()
 
 
+class Image(object):
+    @cherrypy.tools.json_out()
+    def insert_image(self, image=None, authKey=None, folder_name=None):
+        if image is None or authKey is None or folder_name is None:
+            return bad_request()
+        try:
+            image_size = len(image.file.read())
+            output = DataBase.insert_image(image, folder_name, image.filename, authKey, image_size)
+            if output == -1:
+                return authorizing_failed()
+            elif output == -2:
+                return folder_does_not_exist()
+            elif output == -3:
+                return {
+                    "status": "error",
+                    "code": "INVALID_REQUEST",
+                    "message": "run out of memory"
+                }
+            cherrypy.response.status = 200
+            return {
+                "status": "success",
+                "code": "SUCCESS",
+                "response": {
+                    "image_name": image.filename,
+                    "image_size": image_size
+                }
+            }
+        except:
+            return internal_server_error()
 
+    @cherrypy.tools.json_out()
+    def get_images(self, authKey, folder_name):
+        if authKey is None or folder_name is None:
+            return bad_request()
+        try:
+            output = DataBase.get_images_in_folder(authKey, folder_name,)
+            if output == -1:
+                return authorizing_failed()
+            elif output == -2:
+                return folder_does_not_exist()
+            cherrypy.response.status = 200
+            return {
+                "status": "success",
+                "code": "SUCCESS",
+                "response": {
+                    "images_list": output
+                }
+            }
+        except:
+            return internal_server_error()
+
+    @cherrypy.tools.json_out()
+    def delete_image(self, authKey, folder_name, image_name):
+        if authKey is None or folder_name is None or image_name is None:
+            return bad_request()
+        try:
+            output = DataBase.delete_images_in_folder(authKey, folder_name, image_name)
+            if output == -1:
+                return authorizing_failed()
+            elif output == -2:
+                return folder_does_not_exist()
+            elif output == -3:
+                cherrypy.response.status = 404
+                return {
+                    "status": "error",
+                    "code": "INVALID_REQUEST",
+                    "message": f"image-{image_name} does not exists"
+                }
+            cherrypy.response.status = 204
+        except:
+            return internal_server_error()
+
+    @cherrypy.tools.json_out()
+    def change_location(self, image_name, authKey, folder_name, another_folder_name):
+        if authKey is None or folder_name is None or image_name is None:
+            return bad_request()
+        try:
+            output = DataBase.move_image_another_folder(image_name, authKey, folder_name, another_folder_name)
+            if output == -1:
+                return authorizing_failed()
+            elif output == -2:
+                return folder_does_not_exist()
+            elif output == -3:
+                cherrypy.response.status = 404
+                return {
+                    "status": "error",
+                    "code": "INVALID_REQUEST",
+                    "message": f"image- '{image_name}' does not exists"
+                }
+            elif output == -4:
+                cherrypy.response.status = 404
+                return {
+                    "status": "error",
+                    "code": "INVALID_REQUEST",
+                    "message": f"folder- '{another_folder_name}' does not exists"
+                }
+            cherrypy.response.status = 204
+        except:
+            return internal_server_error()
+
+
+class Metrics:
+
+    @cherrypy.tools.json_out()
+    def folder_metrics_operations(self, authKey, folder_name):
+        if authKey is None or folder_name is None:
+            return bad_request()
+        try:
+            output = DataBase.folder_metrics(authKey, folder_name)
+            if output == -1:
+                return authorizing_failed()
+            elif output == -2:
+                return folder_does_not_exist()
+            cherrypy.response.status = 200
+            return {
+                "status": "success",
+                "code": "SUCCESS",
+                "response": {
+                    "image_count": output[1],
+                    "folder_size": output[0]
+                }
+            }
+        except:
+            return internal_server_error()
+
+    @cherrypy.tools.json_out()
+    def user_metrics_operations(self, authKey):
+        if authKey is None :
+            return bad_request()
+        try:
+            output = DataBase.user_metrics(authKey)
+            if output == -1:
+                return authorizing_failed()
+            elif output == -2:
+                return folder_does_not_exist()
+            json_list = []
+            total_count = 0
+            total_size = 0
+            for item in output:
+                total_size += item[0]
+                total_count += item[1]
+                folder_details = {
+                    "folder_name": item[2],
+                    "folder_image_count": item[1],
+                    "folder_size": item[0]
+                }
+                json_list.append(folder_details)
+
+            cherrypy.response.status = 200
+            return {
+                "status": "success",
+                "code": "SUCCESS",
+                "response": {
+                    "total_image_count": total_count,
+                    "total_size_occupied": total_size,
+                    "folder_details":  [name for name in json_list]
+                }
+            }
+        except:
+            return internal_server_error()
 
 
 def jsonify_error(status, message, traceback, version):
@@ -281,7 +435,6 @@ if __name__ == "__main__":
         },
     }
 
-
     start = users_controller()
     start.cloud = users_controller()
     start.cloud.users = users_controller()
@@ -291,25 +444,57 @@ if __name__ == "__main__":
     start.cloud.users.update = users_controller().update
     start.cloud.application = Folder()
     start.cloud.application.folder = Folder()
+    dispatcher = cherrypy.dispatch.RoutesDispatcher()
 
-    dispatcher = cherrypy.dispatch.RoutesDispatcher();
+    # insert image
+    dispatcher.connect(name='',
+                       route='/cloud/application/{folder_name}/images',
+                       action='insert_image',
+                       controller=Image(),
+                       conditions={'method': ['POST']})
+    # get image
+    dispatcher.connect(name='',
+                       route='/cloud/application/{folder_name}/images',
+                       action='get_images',
+                       controller=Image(),
+                       conditions={'method': ['GET']})
 
-    # dispatcher.connect(
-    #     name='folder_name',
-    #     route='/cloud/application/{folder_name}/images',
-    #     action='POST',
-    #     controller=Image(),
-    #     condition={'method': ['POST']}
-    # )
-    # config = {
-    #     '/': {
-    #         'request.dispatch': dispatcher,
-    #     },
-    # }
+    # delete image
+    dispatcher.connect(name='',
+                       route='/cloud/application/{folder_name}/images',
+                       action='delete_image',
+                       controller=Image(),
+                       conditions={'method': ['DELETE']})
+    # put image
+    dispatcher.connect(name='',
+                       route='/cloud/application/{folder_name}/images',
+                       action='change_location',
+                       controller=Image(),
+                       conditions={'method': ['PUT']})
 
-    cherrypy.tree.mount(start, '/', conf)
-    # cherrypy.tree.mount(root=None, config=config)
+    # # metrics_folder
+    # dispatcher.connect(name='',
+    #                    route='/cloud/application/{folder_name}/metrics',
+    #                    action='folder_metrics_operations',
+    #                    controller=Metrics(),
+    #                    conditions={'method': ['GET']})
+    # # metrics user
+    # dispatcher.connect(name='',
+    #                    route='/cloud/application/usage/metrics',
+    #                    action='user_metrics_operations',
+    #                    controller=Metrics(),
+    #                    conditions={'method': ['GET']})
+
+    config = {
+        '/': {
+            'request.dispatch': dispatcher,
+            'error_page.default': jsonify_error,
+            'cors.expose.on': True,
+        },
+    }
+
+    cherrypy.tree.mount(root=None, config=config)
+    # cherrypy.tree.mount(start, '/', conf)
 
     cherrypy.engine.start()
     cherrypy.engine.block()
-
